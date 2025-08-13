@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Size Curve Analyzer</title>
+  <style>
+    :root {
+      --bg:#f5f6f8; --card:#fff; --ink:#1f2937; --muted:#6b7280; --accent:#2563eb;
+      --chip:#eef2ff; --chip-ink:#3730a3;
+    }
+    *{box-sizing:border-box} body{margin:0;font-family:Inter,Segoe UI,system-ui,Arial;background:var(--bg);color:var(--ink)}
+    header{padding:20px 24px;border-bottom:1px solid #e5e7eb;background:var(--card)}
+    h1{margin:0;font-size:20px}
+    main{max-width:1200px;margin:24px auto;padding:0 16px}
+    .panel{background:var(--card);border:1px solid #e5e7eb;border-radius:10px;padding:16px;margin-bottom:16px}
+    .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+    label{font-size:13px;color:var(--muted)}
+    select,input[type=file],button{padding:8px 10px;border:1px solid #e5e7eb;border-radius:8px;background:#fff}
+    input[type="text"]{min-width:220px}
+    select[multiple]{min-width:260px;min-height:160px}
+    button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+    .tabs{display:flex;gap:8px;border-bottom:1px solid #e5e7eb;margin-top:6px}
+    .tab{padding:10px 14px;border:1px solid #e5e7eb;border-bottom:none;border-radius:10px 10px 0 0;background:#fafafa;cursor:pointer}
+    .tab.active{background:#fff;color:var(--accent);font-weight:600}
+    .tab-panel{display:none;padding:16px 0}
+    .tab-panel.active{display:block}
+    .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+    .kpi{background:#fafafa;border:1px solid #e5e7eb;border-radius:8px;padding:10px}
+    .kpi h3{margin:0 0 4px 0;font-size:12px;color:var(--muted)}
+    .kpi div{font-size:18px;font-weight:700}
+    .chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+    .chip{background:var(--chip);color:var(--chip-ink);padding:4px 8px;border-radius:16px;font-size:12px}
+    .grid{overflow:auto;border:1px solid #e5e7eb;border-radius:8px;margin-top:10px}
+    table{border-collapse:collapse;width:100%;min-width:580px}
+    th,td{border-bottom:1px solid #e5e7eb;padding:8px 10px;text-align:left;font-size:13px}
+    th{background:#fafafa}
+    canvas{max-width:100%}
+    .foot{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+    .note{font-size:12px;color:var(--muted)}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Size Curve Analyzer</h1>
+    <div class="note">Upload inventory by Article · Store · Size · Inventory (optional Region, StoreType). Analyze 1–100+ stores fast.</div>
+  </header>
+
+  <main>
+    <!-- Data & Controls -->
+    <section class="panel">
+      <div class="row">
+        <div>
+          <label><strong>Upload data (CSV / XLSX)</strong></label><br/>
+          <input id="fileInput" type="file" accept=".csv,.xlsx" />
+        </div>
+        <div>
+          <label>Search stores</label><br/>
+          <input id="storeSearch" type="text" placeholder="Type to filter store list…" />
+        </div>
+        <div>
+          <label>Select stores (multi)</label><br/>
+          <select id="storeSelect" multiple></select>
+        </div>
+        <div>
+          <label>Optional filters</label><br/>
+          <select id="regionSelect"><option value="">All Regions</option></select>
+          <select id="typeSelect"><option value="">All Store Types</option></select>
+        </div>
+      </div>
+      <div class="row">
+        <button class="primary" id="btnAnalyze">Analyze selection</button>
+        <button id="btnClear">Clear selection</button>
+        <span class="note" id="loadInfo"></span>
+      </div>
+      <div class="chips" id="fileInfo"></div>
+    </section>
+
+    <!-- Tabs -->
+    <section class="panel">
+      <div class="tabs">
+        <div class="tab active" data-tab="store">Store view</div>
+        <div class="tab" data-tab="compare">Multi‑store compare</div>
+        <div class="tab" data-tab="heatmap">Heatmap</div>
+        <div class="tab" data-tab="benchmark">Benchmark vs. ideal</div>
+      </div>
+
+      <!-- Store view -->
+      <div class="tab-panel active" id="panel-store">
+        <div class="row">
+          <label>Pick single store for this view</label>
+          <select id="singleStore"></select>
+          <button id="btnDownloadStorePNG">Download chart</button>
+          <button id="btnStoreCSV">Download summary CSV</button>
+        </div>
+
+        <div class="metrics" style="margin-top:8px">
+          <div class="kpi"><h3>Total inventory</h3><div id="kpiTotal">-</div></div>
+          <div class="kpi"><h3>Unique sizes</h3><div id="kpiSizes">-</div></div>
+          <div class="kpi"><h3>Articles</h3><div id="kpiArticles">-</div></div>
+          <div class="kpi"><h3>Top size share</h3><div id="kpiTopShare">-</div></div>
+        </div>
+
+        <div class="row" style="margin-top:10px">
+          <canvas id="storeBar" height="120"></canvas>
+          <canvas id="storePie" height="120"></canvas>
+        </div>
+
+        <div class="grid">
+          <table id="storeTable"><thead></thead><tbody></tbody></table>
+        </div>
+      </div>
+
+      <!-- Compare -->
+      <div class="tab-panel" id="panel-compare">
+        <div class="row">
+          <label>Normalize by</label>
+          <select id="normMode">
+            <option value="percent">Percent share (recommended)</option>
+            <option value="absolute">Absolute units</option>
+          </select>
+          <button id="btnDownloadComparePNG">Download chart</button>
+          <button id="btnCompareCSV">Download compare CSV</button>
+        </div>
+        <canvas id="compareChart" height="160"></canvas>
+      </div>
+
+      <!-- Heatmap -->
+      <div class="tab-panel" id="panel-heatmap">
+        <div class="row">
+          <label>Color scale</label>
+          <select id="heatScale">
+            <option value="relative">Relative (row‑normalized %)</option>
+            <option value="absolute">Absolute units</option>
+          </select>
+          <button id="btnDownloadHeatmapPNG">Download heatmap</button>
+          <button id="btnHeatCSV">Download heatmap CSV</button>
+        </div>
+        <canvas id="heatmap" height="320"></canvas>
+        <div class="note">Tip: filter Region / StoreType above to focus your heatmap, then multi‑select stores.</div>
+      </div>
+
+      <!-- Benchmark -->
+      <div class="tab-panel" id="panel-benchmark">
+        <div class="row">
+          <label>Ideal curve (comma‑separated %, in size order)</label>
+          <input id="idealInput" type="text" placeholder="e.g. 5,10,25,25,20,10,5" />
+          <button id="btnApplyIdeal">Apply</button>
+          <button id="btnBenchmarkCSV">Download deviations CSV</button>
+        </div>
+        <div class="note">You can also paste from Excel—just ensure the number of entries matches the detected sizes.</div>
+        <canvas id="benchChart" height="160"></canvas>
+        <div class="grid">
+          <table id="benchTable"><thead></thead><tbody></tbody></table>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel foot">
+      <div class="note">This is a static, client‑side tool. No data leaves your browser. Use a private/internal host for sensitive data.</div>
+    </section>
+  </main>
+
+  <!-- Libraries -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.umd.min.js
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-matrix@2.0.1/dist/chartjs-chart-matrix.https://cdn.jsdelivr.net/npm/xlsx@0.19.3/dist/xlsx.full.min.js
+
+  <script>
+    // ---------- Utilities ----------
+    const $, $$ = (q, el=document) => el.querySelector(q), (qa, el=document) => Array.from(el.querySelectorAll(qa));
+
+    const SIZE_ORDER = ["XXS","XS","S","M","L","XL","XXL","XXXL"];
+    function sizeKey(v){
+      const t = (v||"").toString().trim().toUpperCase();
+      const alpha = SIZE_ORDER.indexOf(t);
+      if(alpha>=0) return {rank:10+alpha,label:t};
+      // numeric fallback (EU/US sizes)
+      const num = parseFloat(t.replace(/[^\d.]/g,""));
+      if(!isNaN(num)) return {rank:1000+num,label:v};
+      return {rank:500+v.toString().charCodeAt(0),label:v};
+    }
+    function orderSizes(sizes){
+      return Array.from(new Set(sizes)).sort((a,b)=>sizeKey(a).rank - sizeKey(b).rank);
+    }
+    function csvFromObjects(rows){
+      if(!rows.length) return "";
+      const headers = Object.keys(rows[0]);
+      const escape = v => `"${String(v??"").replace(/"/g,'""')}"`;
+      return [headers.join(","), ...rows.map(r=>headers.map(h=>escape(r[h])).join(","))].join("\n");
+    }
+    function download(filename, content, type="text/csv"){
+      const blob = new Blob([content], {type});
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = filename;
+      document.body.appendChild(link); link.click(); link.remove();
+      setTimeout(()=>URL.revokeObjectURL(link.href), 1000);
+    }
+
+    // ---------- State ----------
+    let raw = [];                 // {Article, Store, Size, Inventory, Region?, StoreType?}
+    let stores = [];
+    let regions = [];
+    let types = [];
+    let sizes = [];               // ordered sizes present in data
+    let selectedStores = [];
+
+    // ---------- Load / Parse ----------
+    $("#fileInput").addEventListener("change", onFile);
+    $("#storeSearch").addEventListener("input", filterStoreList);
+    $("#btnAnalyze").addEventListener("click", analyzeSelection);
+    $("#btnClear").addEventListener("click", ()=>{ selectedStores=[]; renderStoreList(); });
+
+    async function onFile(e){
+      const f = e.target.files[0];
+      if(!f) return;
+      $("#loadInfo").textContent = "Loading…";
+      const ext = f.name.toLowerCase().split(".").pop();
+      if(ext==="csv"){
+        const text = await f.text();
+        raw = parseCSV(text);
+      }else{
+        const buf = await f.arrayBuffer();
+        const wb = XLSX.read(new Uint8Array(buf), {type:"array"});
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const j = XLSX.utils.sheet_to_json(sheet);
+        raw = j.map(r=>({
+          Article: r.Article, Store: r.Store, Size: r.Size,
+          Inventory: parseInt(r.Inventory,10)||0,
+          Region: r.Region ?? "", StoreType: r.StoreType ?? ""
+        })).filter(r=>r.Article && r.Store && r.Size);
+      }
+      postLoad();
+      $("#loadInfo").textContent = `Loaded ${raw.length.toLocaleString()} rows`;
+      $("#fileInfo").innerHTML = `<span class="chip">Columns detected: ${
+        Object.keys(raw[0]||{}).join(", ")
+      }</span>`;
+    }
+
+    function parseCSV(text){
+      const rows = text.replace(/\r/g,"").trim().split("\n");
+      const hdr = rows[0].split(",").map(h=>h.trim());
+      const idx = n => hdr.indexOf(n);
+      const out = [];
+      for(let i=1;i<rows.length;i++){
+        if(!rows[i].trim()) continue;
+        const c = rows[i].split(",");
+        out.push({
+          Article: c[idx("Article")],
+          Store: c[idx("Store")],
+          Size: c[idx("Size")],
+          Inventory: parseInt(c[idx("Inventory")], 10) || 0,
+          Region: idx("Region")>=0 ? c[idx("Region")] : "",
+          StoreType: idx("StoreType")>=0 ? c[idx("StoreType")] : ""
+        });
+      }
+      return out.filter(r=>r.Article && r.Store && r.Size);
+    }
+
+    function postLoad(){
+      stores  = Array.from(new Set(raw.map(r=>r.Store))).sort();
+      regions = Array.from(new Set(raw.map(r=>r.Region||"").filter(Boolean))).sort();
+      types   = Array.from(new Set(raw.map(r=>r.StoreType||"").filter(Boolean))).sort();
+      sizes   = orderSizes(raw.map(r=>r.Size));
+      selectedStores = stores.slice(0, Math.min(5, stores.length));
+      renderStoreList(); populateFilters();
+      buildSingleStoreDropdown();
+      activateTabs();
+      // bootstrap first view
+      analyzeSelection();
+    }
+
+    function populateFilters(){
+      const regionSel = $("#regionSelect"); regionSel.innerHTML = `<option value="">All Regions</option>`;
+      regions.forEach(r=>regionSel.innerHTML += `<option value="${r}">${r}</option>`);
+      const typeSel = $("#typeSelect"); typeSel.innerHTML = `<option value="">All Store Types</option>`;
+      types.forEach(t=>typeSel.innerHTML += `<option value="${t}">${t}</option>`);
+      regionSel.onchange = analyzeSelection; typeSel.onchange = analyzeSelection;
+    }
+
+    function renderStoreList(){
+      const select = $("#storeSelect"); select.innerHTML = "";
+      const term = $("#storeSearch").value?.toLowerCase() || "";
+      stores.filter(s=>s.toLowerCase().includes(term)).forEach(s=>{
+        const opt = document.createElement("option");
+        opt.value = s; opt.textContent = s;
+        if(selectedStores.includes(s)) opt.selected = true;
+        select.appendChild(opt);
+      });
+      // sync single‑store dropdown
+      buildSingleStoreDropdown();
+    }
+
+    function filterStoreList(){ renderStoreList(); }
+
+    function analyzeSelection(){
+      const sel = Array.from($("#storeSelect").selectedOptions).map(o=>o.value);
+      if(sel.length) selectedStores = sel;
+      const region = $("#regionSelect").value, type = $("#typeSelect").value;
+      let working = raw.slice();
+      if(region) working = working.filter(r=>r.Region===region);
+      if(type)   working = working.filter(r=>r.StoreType===type);
+
+      // If filters applied, keep intersection with selected stores (or all if none manually selected)
+      if(selectedStores.length){
+        working = working.filter(r=>selectedStores.includes(r.Store));
+      }
+
+      // Refresh all tabs
+      sizes = orderSizes(working.map(r=>r.Size));
+      refreshStoreTab(working);
+      refreshCompareTab(working);
+      refreshHeatmapTab(working);
+      refreshBenchmarkTab(working);
+    }
+
+    function buildSingleStoreDropdown(){
+      const dd = $("#singleStore"); dd.innerHTML = "";
+      selectedStores.forEach(s=>{
+        const o = document.createElement("option"); o.value=s; o.textContent=s; dd.appendChild(o);
+      });
+      dd.onchange = ()=>refreshStoreTab(); // will use current dataset filtered by analyzeSelection()
+    }
+
+    // ---------- Aggregations ----------
+    function sumBySize(rows){ // {size: units}
+      const m = new Map();
+      rows.forEach(r=>m.set(r.Size, (m.get(r.Size)||0) + (r.Inventory||0)));
+      return m;
+    }
+    function byStore(rows){ // Map(Store -> subrows[])
+      const m = new Map();
+      rows.forEach(r=>{
+        if(!m.has(r.Store)) m.set(r.Store, []);
+        m.get(r.Store).push(r);
+      });
+      return m;
+    }
+    function tableFromMap(sizeOrder, map){ // -> [{Size, Units, Share%}]
+      const total = sizeOrder.reduce((acc,s)=>acc+(map.get(s)||0),0);
+      return sizeOrder.map(s=>({ Size:s, Units: map.get(s)||0, Share: total? (100*(map.get(s)||0)/total):0 }));
+    }
+
+    // ---------- Charts ----------
+    let storeBar, storePie, compareLine, heatChart, benchLine;
+
+    function refreshStoreTab(allRows){
+      const store = $("#singleStore").value || selectedStores[0];
+      if(!store) return;
+      const rows = (allRows||raw).filter(r=>r.Store===store);
+      const perSize = sumBySize(rows);
+      const table = tableFromMap(sizes, perSize);
+      const total = table.reduce((a,b)=>a+b.Units,0);
+      const top = table.reduce((a,b)=> b.Share>(a?.Share||-1)?b:a, null);
+
+      $("#kpiTotal").textContent   = total.toLocaleString();
+      $("#kpiSizes").textContent   = table.filter(r=>r.Units>0).length;
+      $("#kpiArticles").textContent= new Set(rows.map(r=>r.Article)).size;
+      $("#kpiTopShare").textContent= top? `${top.Size} ${top.Share.toFixed(1)}%` : "-";
+
+      // Table
+      const thead = $("#storeTable thead"), tbody=$("#storeTable tbody");
+      thead.innerHTML = "<tr><th>Size</th><th>Units</th><th>Share %</th></tr>";
+      tbody.innerHTML = table.map(r=>`<tr><td>${r.Size}</td><td>${r.Units.toLocaleString()}</td><td>${r.Share.toFixed(1)}</td></tr>`).join("");
+
+      // Bar & Pie
+      const labels = sizes; const data = labels.map(s=>perSize.get(s)||0);
+      const colors = labels.map((_,i)=>`hsl(${(i*37)%360} 70% 60%)`);
+
+      storeBar?.destroy();
+      storeBar = new Chart($("#storeBar"), {
+        type:"bar",
+        data:{ labels, datasets:[{label:`Units by size — ${store}`, data, backgroundColor:colors}] },
+        options:{ responsive:true, scales:{ y:{ beginAtZero:true } } }
+      });
+
+      storePie?.destroy();
+      storePie = new Chart($("#storePie"), {
+        type:"pie",
+        data:{ labels, datasets:[{label:`Share by size — ${store}`, data, backgroundColor:colors}] },
+        options:{ responsive:true }
+      });
+
+      // Downloads
+      $("#btnDownloadStorePNG").onclick = ()=>downloadPNG(storeBar, `size-curve_${store}.png`);
+      $("#btnStoreCSV").onclick = ()=>{
+        download(`size-curve_${store}.csv`, csvFromObjects(table.map(r=>({Size:r.Size, Units:r.Units, Share:r.Share.toFixed(1)}))));
+      };
+    }
+
+    function refreshCompareTab(allRows){
+      const rows = (allRows||raw).filter(r=>selectedStores.includes(r.Store));
+      const byS = byStore(rows);
+      const labels = sizes;
+      const datasets = [];
+      const norm = $("#normMode").value || "percent";
+
+      selectedStores.forEach((store, idx)=>{
+        const per = sumBySize(byS.get(store)||[]);
+        let vals = labels.map(s=>per.get(s)||0);
+        if(norm==="percent"){
+          const tot = vals.reduce((a,b)=>a+b,0)||1;
+          vals = vals.map(v=>100*v/tot);
+        }
+        datasets.push({
+          label: store,
+          data: vals,
+          borderColor:`hsl(${(idx*53)%360} 80% 45%)`,
+          backgroundColor: `hsl(${(idx*53)%360} 80% 70% / .2)`,
+          tension:.15
+        });
+      });
+
+      compareLine?.destroy();
+      compareLine = new Chart($("#compareChart"), {
+        type:"line",
+        data:{ labels, datasets },
+        options:{ responsive:true, plugins:{ title:{display:true,text: (norm==="percent"?"Normalized":"Absolute")+" — Size curves"}}, scales:{ y:{ beginAtZero:true }}}
+      });
+
+      $("#btnDownloadComparePNG").onclick = ()=>downloadPNG(compareLine, `size-curve_compare_${norm}.png`);
+      $("#btnCompareCSV").onclick = ()=>{
+        // wide CSV: rows = sizes, columns = selected stores
+        const rowsOut = labels.map((sz,i)=>{
+          const r = { Size:sz };
+          datasets.forEach(ds=>{ r[ds.label] = ds.data[i].toFixed(2); });
+          return r;
+        });
+        download(`size-curve_compare_${norm}.csv`, csvFromObjects(rowsOut));
+      };
+      $("#normMode").onchange = ()=>refreshCompareTab(allRows);
+    }
+
+    function refreshHeatmapTab(allRows){
+      const rows = (allRows||raw).filter(r=>selectedStores.includes(r.Store));
+      const byS = byStore(rows);
+      const storesLocal = selectedStores.slice();
+
+      const matrix = [];
+      let maxAbs = 0;
+      storesLocal.forEach((st, r)=>{
+        const per = sumBySize(byS.get(st)||[]);
+        const rowTotal = sizes.reduce((a,s)=>a+(per.get(s)||0),0)||1;
+        sizes.forEach((sz, c)=>{
+          const valAbs = per.get(sz)||0;
+          const valPct = (100*valAbs/rowTotal);
+          matrix.push({x:c,y:r,vAbs:valAbs,vPct:valPct});
+          if(valAbs>maxAbs) maxAbs=valAbs;
+        });
+      });
+
+      const mode = $("#heatScale").value || "relative";
+      const v = (cell)=> mode==="relative" ? cell.vPct : cell.vAbs;
+      const maxV = mode==="relative" ? 100 : maxAbs||1;
+
+      heatChart?.destroy();
+      heatChart = new Chart($("#heatmap"), {
+        type:"matrix",
+        data:{
+          datasets:[{
+            label:"Size vs Store",
+            data:matrix.map((m,i)=>({x: m.x, y:m.y, v:v(m)})),
+            width: ({chart}) => (chart.chartArea.width / Math.max(1,sizes.length)) - 2,
+            height:({chart}) => (chart.chartArea.height/ Math.max(1,storesLocal.length)) - 2,
+            backgroundColor:(ctx)=>{
+              const val = ctx.raw.v;
+              const t = val / maxV; // 0..1
+              return `hsl(${Math.round(220 - 220*t)} 85% ${Math.round(90 - 45*t)}%)`;
+            },
+            borderColor:"#fff", borderWidth:1
+          }]
+        },
+        options:{
+          responsive:true,
+          plugins:{ legend:{display:false}, tooltip:{callbacks:{
+            title:(it)=>`Store: ${storesLocal[it[0].raw.y]}`,
+            label:(it)=>`Size ${sizes[it.raw.x]} — ${it.raw.v.toFixed(1)} ${mode==="relative"?"%":"units"}`
+          }}},
+          scales:{
+            x:{type:"category", labels:sizes, position:"top", grid:{display:false}},
+            y:{type:"category", labels:storesLocal, grid:{display:false}, reverse:true}
+          }
+        }
+      });
+
+      $("#btnDownloadHeatmapPNG").onclick = ()=>downloadPNG(heatChart, `size-curve_heatmap_${mode}.png`);
+      $("#btnHeatCSV").onclick = ()=>{
+        const rowsOut = [];
+        storesLocal.forEach((st,r)=>{
+          const line = { Store:st };
+          sizes.forEach((sz,c)=>{
+            const cell = matrix.find(m=>m.x===c && m.y===r);
+            line[sz] = (mode==="relative"?cell.vPct:cell.vAbs).toFixed(2);
+          });
+          rowsOut.push(line);
+        });
+        download(`size-curve_heatmap_${mode}.csv`, csvFromObjects(rowsOut));
+      };
+      $("#heatScale").onchange = ()=>refreshHeatmapTab(allRows);
+    }
+
+    function refreshBenchmarkTab(allRows){
+      const rows = (allRows||raw).filter(r=>selectedStores.includes(r.Store));
+      const byS = byStore(rows);
+      const labels = sizes;
+      // default uniform ideal if not set yet
+      if(!$("#idealInput").value) $("#idealInput").value = labels.map(()=> (100/labels.length).toFixed(2)).join(",");
+      $("#btnApplyIdeal").onclick = ()=>refreshBenchmarkTab(allRows);
+
+      const ideal = $("#idealInput").value.split(/[,\s]+/).map(x=>parseFloat(x)).filter(x=>!isNaN(x));
+      if(ideal.length !== labels.length){
+        $("#benchTable thead").innerHTML = "";
+        $("#benchTable tbody").innerHTML = `<tr><td>Please enter ${labels.length} values to match detected sizes: ${labels.join(", ")}</td></tr>`;
+        benchLine?.destroy(); return;
+      }
+      const idealNorm = (()=>{ const s=ideal.reduce((a,b)=>a+b,0)||1; return ideal.map(x=>100*x/s); })();
+
+      const datasets=[]; const devRows=[];
+      selectedStores.forEach((store, idx)=>{
+        const per = sumBySize(byS.get(store)||[]);
+        const vals = labels.map(s=>per.get(s)||0);
+        const tot = vals.reduce((a,b)=>a+b,0)||1;
+        const pct = vals.map(v=>100*v/tot);
+        datasets.push({
+          label: store,
+          data: pct,
+          borderColor:`hsl(${(idx*53)%360} 80% 45%)`,
+          backgroundColor:`hsl(${(idx*53)%360} 80% 70% / .2)`,
+          tension:.15
+        });
+        // deviations
+        const absDev = pct.map((p,i)=>Math.abs(p - idealNorm[i]));
+        const mad = absDev.reduce((a,b)=>a+b,0)/absDev.length;
+        devRows.push({ Store:store, MAD:`${mad.toFixed(2)}%` });
+      });
+
+      benchLine?.destroy();
+      benchLine = new Chart($("#benchChart"), {
+        type:"line",
+        data:{ labels, datasets:[{label:"Ideal", data:idealNorm, borderDash:[6,4], borderWidth:2, borderColor:"#111827"}, ...datasets] },
+        options:{ responsive:true, plugins:{ title:{display:true, text:"Actual vs. Ideal size curves (%)" }}, scales:{ y:{ beginAtZero:true, ticks:{callback:v=>v+"%"} } } }
+      });
+
+      $("#benchTable thead").innerHTML = "<tr><th>Store</th><th>Mean abs. deviation vs ideal</th></tr>";
+      $("#benchTable tbody").innerHTML = devRows.map(r=>`<tr><td>${r.Store}</td><td>${r.MAD}</td></tr>`).join("");
+
+      $("#btnBenchmarkCSV").onclick = ()=>download(`size-curve_benchmark_deviations.csv`, csvFromObjects(devRows));
+    }
+
+    function downloadPNG(chart, name){
+      const a = document.createElement("a");
+      a.download = name;
+      a.href = chart.toBase64Image();
+      a.click();
+    }
+
+    // ---------- Tabs ----------
+    function activateTabs(){
+      $$(".tab").forEach(t=>{
+        t.onclick = ()=>{
+          $$(".tab").forEach(x=>x.classList.remove("active"));
+          $$(".tab-panel").forEach(x=>x.classList.remove("active"));
+          t.classList.add("active");
+          $(`#panel-${t.dataset.tab}`).classList.add("active");
+        };
+      });
+    }
+  </script>
+</body>
+</html>
